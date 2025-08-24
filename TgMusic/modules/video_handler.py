@@ -127,40 +127,61 @@ async def handle_video_reply(
             
             # Download the file using pytdbot's proper download method
             try:
-                # For pytdbot, we need to use the download_file method
-                if hasattr(c, 'download_file'):
-                    # Use the client's download_file method
-                    await c.download_file(file_obj, local_file_path)
-                elif hasattr(file_obj, 'download'):
-                    # Try the file object's download method if it exists
-                    await file_obj.download(local_file_path)
-                else:
-                    # Fallback: try to get file path and download manually
-                    # Get the file path from the file object
-                    if hasattr(file_obj, 'local') and file_obj.local:
-                        # File is already local
-                        source_path = file_obj.local.path
-                        if os.path.exists(source_path):
-                            # Copy the file
-                            import shutil
-                            shutil.copy2(source_path, local_file_path)
-                        else:
-                            raise Exception("Local file path not found")
+                # For pytdbot, we need to use the correct download method
+                # Let's try to get the file path and download it properly
+                
+                # First, try to get the file path from the file object
+                file_path = None
+                
+                # Check if file has a local path
+                if hasattr(file_obj, 'local') and file_obj.local and hasattr(file_obj.local, 'path'):
+                    file_path = file_obj.local.path
+                    if os.path.exists(file_path):
+                        # File is already local, just copy it
+                        import shutil
+                        shutil.copy2(file_path, local_file_path)
+                        file_path = local_file_path
                     else:
-                        # Try to get remote file path
-                        if hasattr(file_obj, 'remote') and file_obj.remote:
-                            # Use the remote file path
-                            source_path = file_obj.remote.path
-                            if os.path.exists(source_path):
-                                import shutil
-                                shutil.copy2(source_path, local_file_path)
+                        file_path = None
+                
+                # If no local path, try to get remote path
+                if not file_path and hasattr(file_obj, 'remote') and file_obj.remote and hasattr(file_obj.remote, 'path'):
+                    file_path = file_obj.remote.path
+                    if os.path.exists(file_path):
+                        # Remote file is accessible, copy it
+                        import shutil
+                        shutil.copy2(file_path, local_file_path)
+                        file_path = local_file_path
+                    else:
+                        file_path = None
+                
+                # If still no path, try to use the file object directly
+                if not file_path:
+                    # Try to use the file object's built-in methods
+                    if hasattr(file_obj, 'download'):
+                        await file_obj.download(local_file_path)
+                        file_path = local_file_path
+                    elif hasattr(c, 'download_file'):
+                        await c.download_file(file_obj, local_file_path)
+                        file_path = local_file_path
+                    else:
+                        # Last resort: try to get the file content and write it manually
+                        # This is a fallback method
+                        try:
+                            # Try to get file content as bytes
+                            if hasattr(file_obj, 'get_file'):
+                                file_content = await file_obj.get_file()
+                                if file_content:
+                                    with open(local_file_path, 'wb') as f:
+                                        f.write(file_content)
+                                    file_path = local_file_path
                             else:
-                                raise Exception("Remote file path not accessible")
-                        else:
-                            raise Exception("No download method available for this file type")
+                                raise Exception("No download method available for this file type")
+                        except Exception as fallback_error:
+                            raise Exception(f"All download methods failed: {str(fallback_error)}")
                 
                 # Check if file was downloaded successfully
-                if not os.path.exists(local_file_path) or os.path.getsize(local_file_path) == 0:
+                if not file_path or not os.path.exists(local_file_path) or os.path.getsize(local_file_path) == 0:
                     await reply_message.edit_text(
                         f"❌ **Download Failed**\n\n"
                         f"📁 **File**: {video_info['file_name']}\n\n"
