@@ -39,29 +39,48 @@ class VideoHandler:
         
         if hasattr(message.content, 'video'):
             video = message.content.video
-            # Access video attributes safely
+            # Access video attributes safely - these are the actual attributes
             video_info.update({
-                'file_id': getattr(video, 'id', 'unknown'),
                 'file_name': getattr(video, 'file_name', 'Unknown Video'),
                 'duration': getattr(video, 'duration', 0),
-                'file_size': getattr(video, 'file_size', 0),
-                'mime_type': 'video/mp4',
+                'mime_type': getattr(video, 'mime_type', 'video/mp4'),
                 'width': getattr(video, 'width', 0),
                 'height': getattr(video, 'height', 0),
                 'file': video,  # Store the actual video object
             })
+            
+            # For pytdbot, we need to get the file ID differently
+            # The file ID is stored in the message content structure
+            if hasattr(message.content, 'video') and hasattr(message.content.video, 'video'):
+                video_obj = message.content.video.video
+                if hasattr(video_obj, 'id'):
+                    video_info['file_id'] = video_obj.id
+                else:
+                    # Generate a unique ID based on message ID and timestamp
+                    video_info['file_id'] = f"vid_{message.id}_{message.date}"
+            else:
+                video_info['file_id'] = f"vid_{message.id}_{message.date}"
+                
         elif hasattr(message.content, 'document'):
             doc = message.content.document
             video_info.update({
-                'file_id': getattr(doc, 'id', 'unknown'),
                 'file_name': getattr(doc, 'file_name', 'Unknown Video'),
                 'duration': 0,
-                'file_size': getattr(doc, 'file_size', 0),
                 'mime_type': getattr(doc, 'mime_type', 'video/mp4'),
                 'width': 0,
                 'height': 0,
                 'file': doc,  # Store the actual document object
             })
+            
+            # For documents, get file ID from the document object
+            if hasattr(doc, 'document') and hasattr(doc.document, 'id'):
+                video_info['file_id'] = doc.document.id
+            else:
+                # Generate a unique ID based on message ID and timestamp
+                video_info['file_id'] = f"doc_{message.id}_{message.date}"
+        
+        # Set file size to 0 for now since it's not directly accessible
+        video_info['file_size'] = 0
         
         return video_info
 
@@ -94,7 +113,7 @@ async def handle_video_reply(
         await reply_message.edit_text(
             f"🎬 **Starting Video Playback**\n\n"
             f"📁 **File**: {video_info['file_name']}\n"
-            f"📏 **Size**: {video_info['file_size'] / (1024*1024):.1f}MB\n"
+            f"📏 **Size**: Unknown (will be determined after download)\n"
             f"🎯 **Format**: {video_info['file_name'].split('.')[-1] if '.' in video_info['file_name'] else 'mp4'}\n\n"
             f"⏳ Downloading video file..."
         )
@@ -119,47 +138,69 @@ async def handle_video_reply(
             await reply_message.edit_text(
                 f"🎬 **Downloading Video**\n\n"
                 f"📁 **File**: {video_info['file_name']}\n"
-                f"📏 **Size**: {video_info['file_size'] / (1024*1024):.1f}MB\n"
+                f"📏 **Size**: Unknown (downloading...)\n"
                 f"🎯 **Format**: {file_extension.upper()}\n\n"
                 f"⏳ Downloading to server...\n"
                 f"💾 **Path**: {local_file_path}"
             )
             
-            # Download the file using pytdbot's downloadFile method
+            # For pytdbot, we need to use a different approach
+            # Since we can't directly download files, let's try to get the file content
             try:
-                # Use the correct pytdbot downloadFile method
-                if hasattr(c, 'downloadFile'):
-                    # This is the correct method that exists in pytdbot!
-                    await c.downloadFile(
-                        file_id=file_id,
-                        priority=1,  # High priority
-                        offset=0,    # Start from beginning
-                        limit=0      # Download entire file
+                # Try to get file information first
+                if hasattr(file_obj, 'video') and hasattr(file_obj.video, 'id'):
+                    # This is a video message
+                    actual_file_id = file_obj.video.id
+                    await reply_message.edit_text(
+                        f"🎬 **Getting Video File**\n\n"
+                        f"📁 **File**: {video_info['file_name']}\n"
+                        f"🆔 **File ID**: {actual_file_id}\n\n"
+                        f"⏳ Requesting file from Telegram..."
                     )
                     
-                    # Wait a bit for download to start
-                    await asyncio.sleep(2)
-                    
-                    # Check if file was downloaded successfully
-                    if not os.path.exists(local_file_path) or os.path.getsize(local_file_path) == 0:
-                        # Try alternative approach - get file content directly
-                        try:
-                            # Use getFile to get file data
-                            file_data = await c.getFile(file_id)
-                            if file_data and hasattr(file_data, 'local') and file_data.local:
-                                # File is now local, copy it to our directory
-                                import shutil
-                                source_path = file_data.local.path
-                                if os.path.exists(source_path):
-                                    shutil.copy2(source_path, local_file_path)
-                                else:
-                                    raise Exception("Downloaded file path not found")
+                    # Try to get the file using pytdbot's getFile method
+                    try:
+                        file_data = await c.getFile(actual_file_id)
+                        if file_data and hasattr(file_data, 'local') and file_data.local:
+                            # File is local, copy it to our directory
+                            import shutil
+                            source_path = file_data.local.path
+                            if os.path.exists(source_path):
+                                shutil.copy2(source_path, local_file_path)
                             else:
-                                raise Exception("Could not get file data")
-                        except Exception as get_file_error:
-                            raise Exception(f"File download failed: {str(get_file_error)}")
+                                raise Exception("Downloaded file path not found")
+                        else:
+                            raise Exception("Could not get file data from Telegram")
+                    except Exception as get_file_error:
+                        raise Exception(f"File retrieval failed: {str(get_file_error)}")
+                        
+                elif hasattr(file_obj, 'document') and hasattr(file_obj.document, 'id'):
+                    # This is a document message
+                    actual_file_id = file_obj.document.id
+                    await reply_message.edit_text(
+                        f"🎬 **Getting Document File**\n\n"
+                        f"📁 **File**: {video_info['file_name']}\n"
+                        f"🆔 **File ID**: {actual_file_id}\n\n"
+                        f"⏳ Requesting file from Telegram..."
+                    )
+                    
+                    # Try to get the file using pytdbot's getFile method
+                    try:
+                        file_data = await c.getFile(actual_file_id)
+                        if file_data and hasattr(file_data, 'local') and file_data.local:
+                            # File is local, copy it to our directory
+                            import shutil
+                            source_path = file_data.local.path
+                            if os.path.exists(source_path):
+                                shutil.copy2(source_path, local_file_path)
+                            else:
+                                raise Exception("Downloaded file path not found")
+                        else:
+                            raise Exception("Could not get file data from Telegram")
+                    except Exception as get_file_error:
+                        raise Exception(f"File retrieval failed: {str(get_file_error)}")
                 else:
-                    raise Exception("downloadFile method not available")
+                    raise Exception("Could not determine file ID from message structure")
                 
                 # Check if file was downloaded successfully
                 if not os.path.exists(local_file_path) or os.path.getsize(local_file_path) == 0:
@@ -175,10 +216,11 @@ async def handle_video_reply(
                     return
                 
                 # File downloaded successfully, now try to stream
+                file_size = os.path.getsize(local_file_path)
                 await reply_message.edit_text(
                     f"🎬 **Video Downloaded Successfully**\n\n"
                     f"📁 **File**: {video_info['file_name']}\n"
-                    f"📏 **Size**: {os.path.getsize(local_file_path) / (1024*1024):.1f}MB\n"
+                    f"📏 **Size**: {file_size / (1024*1024):.1f}MB\n"
                     f"🎯 **Format**: {file_extension.upper()}\n"
                     f"💾 **Local Path**: {local_file_path}\n\n"
                     f"🚀 **Status**: Starting video stream..."
@@ -198,7 +240,7 @@ async def handle_video_reply(
                             await reply_message.edit_text(
                                 f"🎬 **Video Now Playing!**\n\n"
                                 f"📁 **File**: {video_info['file_name']}\n"
-                                f"📏 **Size**: {os.path.getsize(local_file_path) / (1024*1024):.1f}MB\n"
+                                f"📏 **Size**: {file_size / (1024*1024):.1f}MB\n"
                                 f"🎯 **Format**: {file_extension.upper()}\n\n"
                                 f"✅ **Status**: Video streaming successfully!\n"
                                 f"🎵 **Voice Chat**: Active\n\n"
@@ -208,7 +250,7 @@ async def handle_video_reply(
                             await reply_message.edit_text(
                                 f"❌ **Streaming Failed**\n\n"
                                 f"📁 **File**: {video_info['file_name']}\n"
-                                f"📏 **Size**: {os.path.getsize(local_file_path) / (1024*1024):.1f}MB\n\n"
+                                f"📏 **Size**: {file_size / (1024*1024):.1f}MB\n\n"
                                 f"🚫 **Error**: Could not start video stream\n\n"
                                 f"💡 **Troubleshooting**:\n"
                                 f"• Make sure you're in a voice chat\n"
@@ -220,7 +262,7 @@ async def handle_video_reply(
                         await reply_message.edit_text(
                             f"❌ **Streaming Error**\n\n"
                             f"📁 **File**: {video_info['file_name']}\n"
-                            f"📏 **Size**: {os.path.getsize(local_file_path) / (1024*1024):.1f}MB\n\n"
+                            f"📏 **Size**: {file_size / (1024*1024):.1f}MB\n\n"
                             f"🚫 **Error**: {str(stream_error)}\n\n"
                             f"💡 **Troubleshooting**:\n"
                             f"• Ensure voice chat is active\n"
@@ -232,7 +274,7 @@ async def handle_video_reply(
                     await reply_message.edit_text(
                         f"🎬 **Video Ready for Playback**\n\n"
                         f"📁 **File**: {video_info['file_name']}\n"
-                        f"📏 **Size**: {os.path.getsize(local_file_path) / (1024*1024):.1f}MB\n"
+                        f"📏 **Size**: {file_size / (1024*1024):.1f}MB\n"
                         f"🎯 **Format**: {file_extension.upper()}\n"
                         f"💾 **Local Path**: {local_file_path}\n\n"
                         f"✅ Video downloaded and ready!\n\n"
