@@ -204,6 +204,16 @@ class Calls:
         LOGGER.info(
             "Playing media for chat %s: %s (video=%s)", chat_id, file_path, video
         )
+        
+        # Add detailed logging for video streaming
+        if video:
+            LOGGER.info(
+                "Video streaming configuration: audio_path=None, audio_flags=IGNORE, video_flags=AUTO_DETECT"
+            )
+        else:
+            LOGGER.info(
+                "Audio streaming configuration: audio_path=%s, audio_flags=REQUIRED, video_flags=IGNORE", file_path
+            )
 
         client = await self._group_assistant(chat_id)
         if isinstance(client, types.Error):
@@ -222,11 +232,11 @@ class Calls:
             return join
 
         _stream = MediaStream(
-            audio_path=file_path,
+            audio_path=None if video else file_path,  # No audio path for video streaming
             media_path=file_path,
             audio_parameters=AudioQuality.HIGH if video else AudioQuality.STUDIO,
             video_parameters=VideoQuality.FHD_1080p if video else VideoQuality.SD_360p,
-            audio_flags=MediaStream.Flags.REQUIRED,
+            audio_flags=MediaStream.Flags.IGNORE if video else MediaStream.Flags.REQUIRED,  # Ignore audio for video
             video_flags=(
                 MediaStream.Flags.AUTO_DETECT if video else MediaStream.Flags.IGNORE
             ),
