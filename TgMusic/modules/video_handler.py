@@ -5,6 +5,7 @@
 from typing import Optional, Dict, Any
 from pytdbot import types, Client
 import os
+import asyncio
 
 
 class VideoHandler:
@@ -40,24 +41,26 @@ class VideoHandler:
             video = message.content.video
             # Access video attributes safely
             video_info.update({
-                'file_id': getattr(video, 'id', 'unknown'),  # Use 'id' instead of 'file_id'
+                'file_id': getattr(video, 'id', 'unknown'),
                 'file_name': getattr(video, 'file_name', 'Unknown Video'),
                 'duration': getattr(video, 'duration', 0),
                 'file_size': getattr(video, 'file_size', 0),
                 'mime_type': 'video/mp4',
                 'width': getattr(video, 'width', 0),
                 'height': getattr(video, 'height', 0),
+                'file': video,  # Store the actual video object
             })
         elif hasattr(message.content, 'document'):
             doc = message.content.document
             video_info.update({
-                'file_id': getattr(doc, 'id', 'unknown'),  # Use 'id' instead of 'file_id'
+                'file_id': getattr(doc, 'id', 'unknown'),
                 'file_name': getattr(doc, 'file_name', 'Unknown Video'),
                 'duration': 0,
                 'file_size': getattr(doc, 'file_size', 0),
                 'mime_type': getattr(doc, 'mime_type', 'video/mp4'),
                 'width': 0,
                 'height': 0,
+                'file': doc,  # Store the actual document object
             })
         
         return video_info
@@ -92,81 +95,142 @@ async def handle_video_reply(
             f"🎬 **Starting Video Playback**\n\n"
             f"📁 **File**: {video_info['file_name']}\n"
             f"📏 **Size**: {video_info['file_size'] / (1024*1024):.1f}MB\n"
-            f"🎯 **Format**: {video_info['mime_type']}\n\n"
-            f"⏳ Downloading and preparing video..."
+            f"🎯 **Format**: {video_info['file_name'].split('.')[-1] if '.' in video_info['file_name'] else 'mp4'}\n\n"
+            f"⏳ Downloading video file..."
         )
         
-        # Get the file ID for download
+        # Get the file object and download path
+        file_obj = video_info['file']
         file_id = video_info['file_id']
         
-        # Check if we have access to PyTgCalls for voice chat streaming
-        if hasattr(c, 'call') and c.call:
-            # We have PyTgCalls - try to stream the video
-            try:
-                # Update message to show we're streaming
-                await reply_message.edit_text(
-                    f"🎬 **Streaming Video in Voice Chat**\n\n"
-                    f"📁 **File**: {video_info['file_name']}\n"
-                    f"📏 **Size**: {video_info['file_size'] / (1024*1024):.1f}MB\n"
-                    f"🎯 **Format**: {video_info['mime_type']}\n\n"
-                    f"🚀 **Status**: Starting video stream..."
-                )
-                
-                # Try to start video streaming in voice chat
-                # This will use the existing PyTgCalls integration
-                stream_result = await c.call.play_media(
-                    chat_id=chat_id,
-                    file_path=f"video_{file_id}.mp4",  # Use file ID as identifier
-                    video=True  # Enable video streaming
-                )
-                
-                if stream_result:
-                    await reply_message.edit_text(
-                        f"🎬 **Video Now Playing!**\n\n"
-                        f"📁 **File**: {video_info['file_name']}\n"
-                        f"📏 **Size**: {video_info['file_size'] / (1024*1024):.1f}MB\n"
-                        f"🎯 **Format**: {video_info['mime_type']}\n\n"
-                        f"✅ **Status**: Video streaming successfully!\n"
-                        f"🎵 **Voice Chat**: Active\n\n"
-                        f"💡 **Controls**: Use /stop to stop playback"
-                    )
-                else:
-                    await reply_message.edit_text(
-                        f"❌ **Streaming Failed**\n\n"
-                        f"📁 **File**: {video_info['file_name']}\n"
-                        f"📏 **Size**: {video_info['file_size'] / (1024*1024):.1f}MB\n\n"
-                        f"🚫 **Error**: Could not start video stream\n\n"
-                        f"💡 **Troubleshooting**:\n"
-                        f"• Make sure you're in a voice chat\n"
-                        f"• Check if voice chat is active\n"
-                        f"• Try again with a different video"
-                    )
-                    
-            except Exception as stream_error:
-                await reply_message.edit_text(
-                    f"❌ **Streaming Error**\n\n"
-                    f"📁 **File**: {video_info['file_name']}\n"
-                    f"📏 **Size**: {video_info['file_size'] / (1024*1024):.1f}MB\n\n"
-                    f"🚫 **Error**: {str(stream_error)}\n\n"
-                    f"💡 **Troubleshooting**:\n"
-                    f"• Ensure voice chat is active\n"
-                    f"• Check bot permissions\n"
-                    f"• Try a smaller video file"
-                )
-        else:
-            # No PyTgCalls - show preparation message
+        # Create downloads directory if it doesn't exist
+        downloads_dir = "database/videos"
+        os.makedirs(downloads_dir, exist_ok=True)
+        
+        # Generate a unique filename
+        file_extension = video_info['file_name'].split('.')[-1] if '.' in video_info['file_name'] else 'mp4'
+        if file_extension.lower() not in ['mp4', 'avi', 'mov', 'mkv', 'webm']:
+            file_extension = 'mp4'  # Default to mp4 if unknown extension
+        
+        local_file_path = os.path.join(downloads_dir, f"video_{file_id}.{file_extension}")
+        
+        # Download the video file
+        try:
             await reply_message.edit_text(
-                f"🎬 **Video Ready for Playback**\n\n"
+                f"🎬 **Downloading Video**\n\n"
                 f"📁 **File**: {video_info['file_name']}\n"
                 f"📏 **Size**: {video_info['file_size'] / (1024*1024):.1f}MB\n"
-                f"🎯 **Format**: {video_info['mime_type']}\n"
-                f"🆔 **File ID**: {file_id}\n\n"
-                f"✅ Video detected and ready!\n\n"
-                f"🚀 **Next Steps**:\n"
-                f"• Join a voice chat in this group\n"
-                f"• Use /play command again\n"
-                f"• Video streaming will start automatically\n\n"
-                f"💡 **Note**: Full video streaming integration is being implemented!"
+                f"🎯 **Format**: {file_extension.upper()}\n\n"
+                f"⏳ Downloading to server...\n"
+                f"💾 **Path**: {local_file_path}"
+            )
+            
+            # Download the file using pytdbot's download method
+            if hasattr(file_obj, 'download'):
+                # For newer pytdbot versions
+                await file_obj.download(local_file_path)
+            else:
+                # Fallback: try to get file path and download manually
+                await reply_message.edit_text(
+                    f"❌ **Download Error**\n\n"
+                    f"📁 **File**: {video_info['file_name']}\n\n"
+                    f"🚫 **Error**: File download method not available\n\n"
+                    f"💡 **Note**: This version of pytdbot may not support direct file downloads.\n"
+                    f"Please check the bot's documentation for file handling."
+                )
+                return
+            
+            # Check if file was downloaded successfully
+            if not os.path.exists(local_file_path) or os.path.getsize(local_file_path) == 0:
+                await reply_message.edit_text(
+                    f"❌ **Download Failed**\n\n"
+                    f"📁 **File**: {video_info['file_name']}\n\n"
+                    f"🚫 **Error**: File download incomplete or failed\n\n"
+                    f"💡 **Troubleshooting**:\n"
+                    f"• Check server storage space\n"
+                    f"• Try a smaller video file\n"
+                    f"• Check bot permissions"
+                )
+                return
+            
+            # File downloaded successfully, now try to stream
+            await reply_message.edit_text(
+                f"🎬 **Video Downloaded Successfully**\n\n"
+                f"📁 **File**: {video_info['file_name']}\n"
+                f"📏 **Size**: {os.path.getsize(local_file_path) / (1024*1024):.1f}MB\n"
+                f"🎯 **Format**: {file_extension.upper()}\n"
+                f"💾 **Local Path**: {local_file_path}\n\n"
+                f"🚀 **Status**: Starting video stream..."
+            )
+            
+            # Check if we have access to PyTgCalls for voice chat streaming
+            if hasattr(c, 'call') and c.call:
+                try:
+                    # Try to start video streaming in voice chat
+                    stream_result = await c.call.play_media(
+                        chat_id=chat_id,
+                        file_path=local_file_path,  # Use the actual downloaded file path
+                        video=True  # Enable video streaming
+                    )
+                    
+                    if stream_result:
+                        await reply_message.edit_text(
+                            f"🎬 **Video Now Playing!**\n\n"
+                            f"📁 **File**: {video_info['file_name']}\n"
+                            f"📏 **Size**: {os.path.getsize(local_file_path) / (1024*1024):.1f}MB\n"
+                            f"🎯 **Format**: {file_extension.upper()}\n\n"
+                            f"✅ **Status**: Video streaming successfully!\n"
+                            f"🎵 **Voice Chat**: Active\n\n"
+                            f"💡 **Controls**: Use /stop to stop playback"
+                        )
+                    else:
+                        await reply_message.edit_text(
+                            f"❌ **Streaming Failed**\n\n"
+                            f"📁 **File**: {video_info['file_name']}\n"
+                            f"📏 **Size**: {os.path.getsize(local_file_path) / (1024*1024):.1f}MB\n\n"
+                            f"🚫 **Error**: Could not start video stream\n\n"
+                            f"💡 **Troubleshooting**:\n"
+                            f"• Make sure you're in a voice chat\n"
+                            f"• Check if voice chat is active\n"
+                            f"• Try again with a different video"
+                        )
+                        
+                except Exception as stream_error:
+                    await reply_message.edit_text(
+                        f"❌ **Streaming Error**\n\n"
+                        f"📁 **File**: {video_info['file_name']}\n"
+                        f"📏 **Size**: {os.path.getsize(local_file_path) / (1024*1024):.1f}MB\n\n"
+                        f"🚫 **Error**: {str(stream_error)}\n\n"
+                        f"💡 **Troubleshooting**:\n"
+                        f"• Ensure voice chat is active\n"
+                        f"• Check bot permissions\n"
+                        f"• Try a smaller video file"
+                    )
+            else:
+                # No PyTgCalls - show preparation message
+                await reply_message.edit_text(
+                    f"🎬 **Video Ready for Playback**\n\n"
+                    f"📁 **File**: {video_info['file_name']}\n"
+                    f"📏 **Size**: {os.path.getsize(local_file_path) / (1024*1024):.1f}MB\n"
+                    f"🎯 **Format**: {file_extension.upper()}\n"
+                    f"💾 **Local Path**: {local_file_path}\n\n"
+                    f"✅ Video downloaded and ready!\n\n"
+                    f"🚀 **Next Steps**:\n"
+                    f"• Join a voice chat in this group\n"
+                    f"• Use /play command again\n"
+                    f"• Video streaming will start automatically\n\n"
+                    f"💡 **Note**: Full video streaming integration is being implemented!"
+                )
+            
+        except Exception as download_error:
+            await reply_message.edit_text(
+                f"❌ **Download Error**\n\n"
+                f"📁 **File**: {video_info['file_name']}\n\n"
+                f"🚫 **Error**: {str(download_error)}\n\n"
+                f"💡 **Troubleshooting**:\n"
+                f"• Check server storage space\n"
+                f"• Verify bot has download permissions\n"
+                f"• Try a smaller video file"
             )
         
     except Exception as e:
