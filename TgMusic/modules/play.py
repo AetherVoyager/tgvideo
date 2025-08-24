@@ -28,6 +28,7 @@ from TgMusic.modules.utils.play_helpers import (
     get_url,
 )
 from TgMusic.core.thumbnails import gen_thumb
+from TgMusic.modules.video_handler import handle_video_reply, VideoHandler
 
 
 def _get_jiosaavn_url(track_id: str) -> str:
@@ -145,9 +146,10 @@ async def _handle_single_track(
         queue = chat_cache.get_queue(chat_id)
         chat_cache.add_song(chat_id, song)
 
+        media_type = "🎬 Video" if is_video else "🎧 Track"
         queue_info = (
-            f"<b>🎧 Added to Queue (#{len(queue)})</b>\n\n"
-            f"▫ <b>Track:</b> <a href='{song.url}'>{song.name}</a>\n"
+            f"<b>{media_type} Added to Queue (#{len(queue)})</b>\n\n"
+            f"▫ <b>Title:</b> <a href='{song.url}'>{song.name}</a>\n"
             f"▫ <b>Duration:</b> {sec_to_min(song.duration)}\n"
             f"▫ <b>Requested by:</b> {song.user}"
         )
@@ -171,9 +173,10 @@ async def _handle_single_track(
 
     # Prepare now playing message
     thumb = await gen_thumb(song) if await db.get_thumbnail_status(chat_id) else ""
+    media_type = "🎬 Video" if is_video else "🎵 Track"
     now_playing = (
-        f"🎵 <b>Now Playing:</b>\n\n"
-        f"▫ <b>Track:</b> <a href='{song.url}'>{song.name}</a>\n"
+        f"{media_type} <b>Now Playing:</b>\n\n"
+        f"▫ <b>Title:</b> <a href='{song.url}'>{song.name}</a>\n"
         f"▫ <b>Duration:</b> {sec_to_min(song.duration)}\n"
         f"▫ <b>Requested by:</b> {song.user}"
     )
@@ -192,14 +195,15 @@ async def _handle_single_track(
 
 
 async def _handle_multiple_tracks(
-    msg: types.Message, tracks: list[MusicTrack], user_by: str
+    msg: types.Message, tracks: list[MusicTrack], user_by: str, is_video: bool = False
 ):
-    """Process and queue multiple tracks (playlist/album)."""
+    """Process and queue multiple tracks (simple handling)."""
     chat_id = msg.chat_id
     is_active = chat_cache.is_active(chat_id)
     queue = chat_cache.get_queue(chat_id)
 
-    queue_header = "<b>📥 Added to Queue:</b>\n<blockquote expandable>\n"
+    media_type = "🎬 Videos" if is_video else "🎧 Tracks"
+    queue_header = f"<b>📥 Added {media_type} to Queue:</b>\n<blockquote expandable>\n"
     queue_items = []
 
     for index, track in enumerate(tracks):
@@ -215,7 +219,7 @@ async def _handle_multiple_tracks(
                 user=user_by,
                 file_path="",
                 platform=track.platform,
-                is_video=False,
+                is_video=is_video,
                 url=track.url,
             ),
         )
@@ -260,7 +264,7 @@ async def play_music(
         return await _handle_single_track(
             c, msg, url_data.tracks[0], user_by, tg_file_path, is_video
         )
-    return await _handle_multiple_tracks(msg, url_data.tracks, user_by)
+    return await _handle_multiple_tracks(msg, url_data.tracks, user_by, is_video)
 
 
 async def _handle_telegram_file(
@@ -354,7 +358,7 @@ async def _handle_text_search(
 
 
 async def handle_play_command(c: Client, msg: types.Message, is_video: bool = False):
-    """Main handler for /play and /vplay commands."""
+    """Main handler for /play and /vplay commands - simple and straightforward."""
     chat_id = msg.chat_id
     # Validate chat type
     if chat_id > 0:
@@ -366,7 +370,6 @@ async def handle_play_command(c: Client, msg: types.Message, is_video: bool = Fa
         return await msg.reply_text(
             "⚠️ Queue limit reached (10 tracks max). Use /end to clear queue."
         )
-
 
     # Verify bot admin status
     await load_admin_cache(c, chat_id)
@@ -396,16 +399,21 @@ async def handle_play_command(c: Client, msg: types.Message, is_video: bool = Fa
 
     await del_msg(msg)  # Clean up command message
     args = extract_argument(msg.text)
+    
     # Initialize appropriate downloader
     wrapper = (YouTubeData if is_video else DownloaderWrapper)(url or args)
 
     # Validate input
     if not args and not url and (not reply or not tg.is_valid(reply)):
+        media_type = "video" if is_video else "audio"
         usage_text = (
-            "🎵 <b>Usage:</b>\n"
-            f"/{'vplay' if is_video else 'play'} [song_name|URL]\n\n"
+            f"🎬 <b>Usage:</b>\n"
+            f"/{'vplay' if is_video else 'play'} [{'video_name' if is_video else 'song_name'}|URL]\n\n"
+            f"<b>Or reply to a message containing a {media_type} file</b>\n\n"
             "Supported platforms:\n"
-            "▫ YouTube\n▫ Spotify\n▫ JioSaavn\n▫ SoundCloud\n▫ Apple Music"
+            "▫ YouTube\n▫ Spotify\n▫ JioSaavn\n▫ SoundCloud\n▫ Apple Music\n"
+            "▫ Telegram files (audio/video)\n"
+            "▫ Channel videos (reply to video)"
         )
         return await edit_text(status_msg, text=usage_text, reply_markup=SupportButton)
 
@@ -413,6 +421,9 @@ async def handle_play_command(c: Client, msg: types.Message, is_video: bool = Fa
 
     # Handle Telegram file attachments
     if reply and tg.is_valid(reply):
+        # Check if it's a video message and use enhanced video handler
+        if is_video or VideoHandler.is_video_message(reply):
+            return await handle_video_reply(c, reply, status_msg, requester)
         return await _handle_telegram_file(c, reply, status_msg, requester)
 
     # Handle URL playback
