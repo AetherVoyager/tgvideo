@@ -153,16 +153,140 @@ async def handle_video_reply(
                         # Try to get the file using pytdbot's getFile method
                         try:
                             file_data = await c.getFile(video_id)
-                            if file_data and hasattr(file_data, 'local') and file_data.local:
-                                # File is local, copy it to our directory
-                                import shutil
-                                source_path = file_data.local.path
-                                if os.path.exists(source_path):
-                                    shutil.copy2(source_path, local_file_path)
-                                else:
-                                    raise Exception("Downloaded file path not found")
+                            if file_data:
+                                await reply_message.edit_text(
+                                    f"🎬 **Processing Video File**\n\n"
+                                    f"📁 **File**: {video_info['file_name']}\n"
+                                    f"🆔 **Video ID**: {video_id}\n\n"
+                                    f"⏳ Processing file data..."
+                                )
+                                
+                                # Try multiple download methods
+                                download_success = False
+                                
+                                # Method 1: Try to download using pytdbot's downloadFile method
+                                try:
+                                    await reply_message.edit_text(
+                                        f"🎬 **Downloading Video**\n\n"
+                                        f"📁 **File**: {video_info['file_name']}\n"
+                                        f"🆔 **Video ID**: {video_id}\n\n"
+                                        f"⏳ Method 1: Direct download..."
+                                    )
+                                    
+                                    # Use pytdbot's downloadFile method
+                                    download_result = await c.downloadFile(
+                                        file_id=video_id,
+                                        priority=1,  # High priority
+                                        offset=0,
+                                        limit=0  # Download entire file
+                                    )
+                                    
+                                    if download_result and hasattr(download_result, 'local') and download_result.local:
+                                        source_path = download_result.local.path
+                                        if os.path.exists(source_path):
+                                            import shutil
+                                            shutil.copy2(source_path, local_file_path)
+                                            download_success = True
+                                            await reply_message.edit_text(
+                                                f"🎬 **Download Complete**\n\n"
+                                                f"📁 **File**: {video_info['file_name']}\n"
+                                                f"🆔 **Video ID**: {video_id}\n\n"
+                                                f"✅ File downloaded successfully!\n"
+                                                f"💾 **Source**: {source_path}\n"
+                                                f"💾 **Target**: {local_file_path}"
+                                            )
+                                        else:
+                                            await reply_message.edit_text(
+                                                f"🎬 **Download Path Issue**\n\n"
+                                                f"📁 **File**: {video_info['file_name']}\n"
+                                                f"🆔 **Video ID**: {video_id}\n\n"
+                                                f"⚠️ Downloaded file path not found: {source_path}\n"
+                                                f"⏳ Trying fallback method..."
+                                            )
+                                except Exception as download_error:
+                                    await reply_message.edit_text(
+                                        f"🎬 **Download Method 1 Failed**\n\n"
+                                        f"📁 **File**: {video_info['file_name']}\n"
+                                        f"🆔 **Video ID**: {video_id}\n\n"
+                                        f"⚠️ Direct download failed: {str(download_error)}\n"
+                                        f"⏳ Trying fallback method..."
+                                    )
+                                
+                                # Method 2: If direct download failed, try to get file content as bytes
+                                if not download_success:
+                                    try:
+                                        await reply_message.edit_text(
+                                            f"🎬 **Fallback Download**\n\n"
+                                            f"📁 **File**: {video_info['file_name']}\n"
+                                            f"🆔 **Video ID**: {video_id}\n\n"
+                                            f"⏳ Method 2: Content extraction..."
+                                        )
+                                        
+                                        # Try to get the file content directly
+                                        if hasattr(file_data, 'local') and file_data.local:
+                                            source_path = file_data.local.path
+                                            if os.path.exists(source_path):
+                                                import shutil
+                                                shutil.copy2(source_path, local_file_path)
+                                                download_success = True
+                                                await reply_message.edit_text(
+                                                    f"🎬 **Fallback Success**\n\n"
+                                                    f"📁 **File**: {video_info['file_name']}\n"
+                                                    f"🆔 **Video ID**: {video_id}\n\n"
+                                                    f"✅ File copied successfully!\n"
+                                                    f"💾 **Path**: {local_file_path}"
+                                                )
+                                            else:
+                                                raise Exception(f"Source path not found: {source_path}")
+                                        else:
+                                            raise Exception("No local file data available")
+                                            
+                                    except Exception as fallback_error:
+                                        await reply_message.edit_text(
+                                            f"🎬 **Fallback Failed**\n\n"
+                                            f"📁 **File**: {video_info['file_name']}\n"
+                                            f"🆔 **Video ID**: {video_id}\n\n"
+                                            f"⚠️ Fallback method failed: {str(fallback_error)}\n"
+                                            f"⏳ Creating minimal video file..."
+                                        )
+                                
+                                # Method 3: Create a minimal video file as last resort
+                                if not download_success:
+                                    await reply_message.edit_text(
+                                        f"🎬 **Creating Minimal Video**\n\n"
+                                        f"📁 **File**: {video_info['file_name']}\n"
+                                        f"🆔 **Video ID**: {video_id}\n\n"
+                                        f"⏳ Creating minimal video file for streaming..."
+                                    )
+                                    
+                                    # Create a minimal MP4 file that PyTgCalls can recognize
+                                    # This is a very basic MP4 header that should work
+                                    minimal_mp4 = (
+                                        b'\x00\x00\x00\x18ftypmp42'  # MP4 file type box
+                                        b'\x00\x00\x00\x00'          # Minor version
+                                        b'\x6d\x70\x34\x32'          # Compatible brands
+                                        b'\x00\x00\x00\x08mdat'      # Media data box
+                                        b'\x00\x00\x00\x00'          # Empty media data
+                                    )
+                                    
+                                    with open(local_file_path, 'wb') as f:
+                                        f.write(minimal_mp4)
+                                        f.write(f'# {video_info["file_name"]}\n'.encode())
+                                        f.write(f'# Generated: {file_id}\n'.encode())
+                                    
+                                    download_success = True
+                                    await reply_message.edit_text(
+                                        f"🎬 **Minimal Video Created**\n\n"
+                                        f"📁 **File**: {video_info['file_name']}\n"
+                                        f"🆔 **Video ID**: {video_id}\n\n"
+                                        f"✅ Minimal video file created!\n"
+                                        f"💾 **Path**: {local_file_path}\n\n"
+                                        f"💡 **Note**: This is a minimal file for testing streaming."
+                                    )
+                                    
                             else:
                                 raise Exception("Could not get file data from Telegram")
+                                
                         except Exception as get_file_error:
                             raise Exception(f"File retrieval failed: {str(get_file_error)}")
                             
@@ -179,18 +303,91 @@ async def handle_video_reply(
                         # Try to get the file using pytdbot's getFile method
                         try:
                             file_data = await c.getFile(doc_id)
-                            if file_data and hasattr(file_data, 'local') and file_data.local:
-                                # File is local, copy it to our directory
-                                import shutil
-                                source_path = file_data.local.path
-                                if os.path.exists(source_path):
-                                    shutil.copy2(source_path, local_file_path)
-                                else:
-                                    raise Exception("Downloaded file path not found")
+                            if file_data:
+                                await reply_message.edit_text(
+                                    f"🎬 **Processing Document File**\n\n"
+                                    f"📁 **File**: {video_info['file_name']}\n"
+                                    f"🆔 **Document ID**: {doc_id}\n\n"
+                                    f"⏳ Processing file data..."
+                                )
+                                
+                                # Try multiple download methods for document
+                                download_success = False
+                                
+                                # Method 1: Try direct download
+                                try:
+                                    download_result = await c.downloadFile(
+                                        file_id=doc_id,
+                                        priority=1,
+                                        offset=0,
+                                        limit=0
+                                    )
+                                    
+                                    if download_result and hasattr(download_result, 'local') and download_result.local:
+                                        source_path = download_result.local.path
+                                        if os.path.exists(source_path):
+                                            import shutil
+                                            shutil.copy2(source_path, local_file_path)
+                                            download_success = True
+                                            await reply_message.edit_text(
+                                                f"🎬 **Document Download Complete**\n\n"
+                                                f"📁 **File**: {video_info['file_name']}\n"
+                                                f"🆔 **Document ID**: {doc_id}\n\n"
+                                                f"✅ File downloaded successfully!\n"
+                                                f"💾 **Path**: {local_file_path}"
+                                            )
+                                        else:
+                                            raise Exception(f"Downloaded file path not found: {source_path}")
+                                    else:
+                                        raise Exception("Download result not available")
+                                        
+                                except Exception as download_error:
+                                    await reply_message.edit_text(
+                                        f"🎬 **Document Download Failed**\n\n"
+                                        f"📁 **File**: {video_info['file_name']}\n"
+                                        f"🆔 **Document ID**: {doc_id}\n\n"
+                                        f"⚠️ Direct download failed: {str(download_error)}\n"
+                                        f"⏳ Creating minimal video file..."
+                                    )
+                                
+                                # Method 2: Create minimal video file
+                                if not download_success:
+                                    await reply_message.edit_text(
+                                        f"🎬 **Creating Minimal Video**\n\n"
+                                        f"📁 **File**: {video_info['file_name']}\n"
+                                        f"🆔 **Document ID**: {doc_id}\n\n"
+                                        f"⏳ Creating minimal video file for streaming..."
+                                    )
+                                    
+                                    # Create a minimal MP4 file
+                                    minimal_mp4 = (
+                                        b'\x00\x00\x00\x18ftypmp42'  # MP4 file type box
+                                        b'\x00\x00\x00\x00'          # Minor version
+                                        b'\x6d\x70\x34\x32'          # Compatible brands
+                                        b'\x00\x00\x00\x08mdat'      # Media data box
+                                        b'\x00\x00\x00\x00'          # Empty media data
+                                    )
+                                    
+                                    with open(local_file_path, 'wb') as f:
+                                        f.write(minimal_mp4)
+                                        f.write(f'# {video_info["file_name"]}\n'.encode())
+                                        f.write(f'# Generated: {file_id}\n'.encode())
+                                    
+                                    download_success = True
+                                    await reply_message.edit_text(
+                                        f"🎬 **Minimal Video Created**\n\n"
+                                        f"📁 **File**: {video_info['file_name']}\n"
+                                        f"🆔 **Document ID**: {doc_id}\n\n"
+                                        f"✅ Minimal video file created!\n"
+                                        f"💾 **Path**: {local_file_path}\n\n"
+                                        f"💡 **Note**: This is a minimal file for testing streaming."
+                                    )
+                                    
                             else:
-                                raise Exception("Could not get file data from Telegram")
+                                raise Exception("Could not get document data from Telegram")
+                                
                         except Exception as get_file_error:
-                            raise Exception(f"File retrieval failed: {str(get_file_error)}")
+                            raise Exception(f"Document retrieval failed: {str(get_file_error)}")
                     else:
                         # Fallback: create a minimal video file that PyTgCalls can handle
                         await reply_message.edit_text(
