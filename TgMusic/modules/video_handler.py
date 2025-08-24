@@ -37,8 +37,9 @@ class VideoHandler:
         
         if hasattr(message.content, 'video'):
             video = message.content.video
+            # Access video attributes safely
             video_info.update({
-                'file_id': video.file_id,
+                'file_id': getattr(video, 'id', 'unknown'),  # Use 'id' instead of 'file_id'
                 'file_name': getattr(video, 'file_name', 'Unknown Video'),
                 'duration': getattr(video, 'duration', 0),
                 'file_size': getattr(video, 'file_size', 0),
@@ -49,7 +50,7 @@ class VideoHandler:
         elif hasattr(message.content, 'document'):
             doc = message.content.document
             video_info.update({
-                'file_id': doc.file_id,
+                'file_id': getattr(doc, 'id', 'unknown'),  # Use 'id' instead of 'file_id'
                 'file_name': getattr(doc, 'file_name', 'Unknown Video'),
                 'duration': 0,
                 'file_size': getattr(doc, 'file_size', 0),
