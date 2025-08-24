@@ -125,112 +125,140 @@ async def handle_video_reply(
                 f"💾 **Path**: {local_file_path}"
             )
             
-            # Download the file using pytdbot's download method
-            if hasattr(file_obj, 'download'):
-                # For newer pytdbot versions
-                await file_obj.download(local_file_path)
-            else:
-                # Fallback: try to get file path and download manually
-                await reply_message.edit_text(
-                    f"❌ **Download Error**\n\n"
-                    f"📁 **File**: {video_info['file_name']}\n\n"
-                    f"🚫 **Error**: File download method not available\n\n"
-                    f"💡 **Note**: This version of pytdbot may not support direct file downloads.\n"
-                    f"Please check the bot's documentation for file handling."
-                )
-                return
-            
-            # Check if file was downloaded successfully
-            if not os.path.exists(local_file_path) or os.path.getsize(local_file_path) == 0:
-                await reply_message.edit_text(
-                    f"❌ **Download Failed**\n\n"
-                    f"📁 **File**: {video_info['file_name']}\n\n"
-                    f"🚫 **Error**: File download incomplete or failed\n\n"
-                    f"💡 **Troubleshooting**:\n"
-                    f"• Check server storage space\n"
-                    f"• Try a smaller video file\n"
-                    f"• Check bot permissions"
-                )
-                return
-            
-            # File downloaded successfully, now try to stream
-            await reply_message.edit_text(
-                f"🎬 **Video Downloaded Successfully**\n\n"
-                f"📁 **File**: {video_info['file_name']}\n"
-                f"📏 **Size**: {os.path.getsize(local_file_path) / (1024*1024):.1f}MB\n"
-                f"🎯 **Format**: {file_extension.upper()}\n"
-                f"💾 **Local Path**: {local_file_path}\n\n"
-                f"🚀 **Status**: Starting video stream..."
-            )
-            
-            # Check if we have access to PyTgCalls for voice chat streaming
-            if hasattr(c, 'call') and c.call:
-                try:
-                    # Try to start video streaming in voice chat
-                    stream_result = await c.call.play_media(
-                        chat_id=chat_id,
-                        file_path=local_file_path,  # Use the actual downloaded file path
-                        video=True  # Enable video streaming
-                    )
-                    
-                    if stream_result:
-                        await reply_message.edit_text(
-                            f"🎬 **Video Now Playing!**\n\n"
-                            f"📁 **File**: {video_info['file_name']}\n"
-                            f"📏 **Size**: {os.path.getsize(local_file_path) / (1024*1024):.1f}MB\n"
-                            f"🎯 **Format**: {file_extension.upper()}\n\n"
-                            f"✅ **Status**: Video streaming successfully!\n"
-                            f"🎵 **Voice Chat**: Active\n\n"
-                            f"💡 **Controls**: Use /stop to stop playback"
-                        )
+            # Download the file using pytdbot's proper download method
+            try:
+                # For pytdbot, we need to use the download_file method
+                if hasattr(c, 'download_file'):
+                    # Use the client's download_file method
+                    await c.download_file(file_obj, local_file_path)
+                elif hasattr(file_obj, 'download'):
+                    # Try the file object's download method if it exists
+                    await file_obj.download(local_file_path)
+                else:
+                    # Fallback: try to get file path and download manually
+                    # Get the file path from the file object
+                    if hasattr(file_obj, 'local') and file_obj.local:
+                        # File is already local
+                        source_path = file_obj.local.path
+                        if os.path.exists(source_path):
+                            # Copy the file
+                            import shutil
+                            shutil.copy2(source_path, local_file_path)
+                        else:
+                            raise Exception("Local file path not found")
                     else:
-                        await reply_message.edit_text(
-                            f"❌ **Streaming Failed**\n\n"
-                            f"📁 **File**: {video_info['file_name']}\n"
-                            f"📏 **Size**: {os.path.getsize(local_file_path) / (1024*1024):.1f}MB\n\n"
-                            f"🚫 **Error**: Could not start video stream\n\n"
-                            f"💡 **Troubleshooting**:\n"
-                            f"• Make sure you're in a voice chat\n"
-                            f"• Check if voice chat is active\n"
-                            f"• Try again with a different video"
-                        )
-                        
-                except Exception as stream_error:
+                        # Try to get remote file path
+                        if hasattr(file_obj, 'remote') and file_obj.remote:
+                            # Use the remote file path
+                            source_path = file_obj.remote.path
+                            if os.path.exists(source_path):
+                                import shutil
+                                shutil.copy2(source_path, local_file_path)
+                            else:
+                                raise Exception("Remote file path not accessible")
+                        else:
+                            raise Exception("No download method available for this file type")
+                
+                # Check if file was downloaded successfully
+                if not os.path.exists(local_file_path) or os.path.getsize(local_file_path) == 0:
                     await reply_message.edit_text(
-                        f"❌ **Streaming Error**\n\n"
-                        f"📁 **File**: {video_info['file_name']}\n"
-                        f"📏 **Size**: {os.path.getsize(local_file_path) / (1024*1024):.1f}MB\n\n"
-                        f"🚫 **Error**: {str(stream_error)}\n\n"
+                        f"❌ **Download Failed**\n\n"
+                        f"📁 **File**: {video_info['file_name']}\n\n"
+                        f"🚫 **Error**: File download incomplete or failed\n\n"
                         f"💡 **Troubleshooting**:\n"
-                        f"• Ensure voice chat is active\n"
-                        f"• Check bot permissions\n"
-                        f"• Try a smaller video file"
+                        f"• Check server storage space\n"
+                        f"• Try a smaller video file\n"
+                        f"• Check bot permissions"
                     )
-            else:
-                # No PyTgCalls - show preparation message
+                    return
+                
+                # File downloaded successfully, now try to stream
                 await reply_message.edit_text(
-                    f"🎬 **Video Ready for Playback**\n\n"
+                    f"🎬 **Video Downloaded Successfully**\n\n"
                     f"📁 **File**: {video_info['file_name']}\n"
                     f"📏 **Size**: {os.path.getsize(local_file_path) / (1024*1024):.1f}MB\n"
                     f"🎯 **Format**: {file_extension.upper()}\n"
                     f"💾 **Local Path**: {local_file_path}\n\n"
-                    f"✅ Video downloaded and ready!\n\n"
-                    f"🚀 **Next Steps**:\n"
-                    f"• Join a voice chat in this group\n"
-                    f"• Use /play command again\n"
-                    f"• Video streaming will start automatically\n\n"
-                    f"💡 **Note**: Full video streaming integration is being implemented!"
+                    f"🚀 **Status**: Starting video stream..."
+                )
+                
+                # Check if we have access to PyTgCalls for voice chat streaming
+                if hasattr(c, 'call') and c.call:
+                    try:
+                        # Try to start video streaming in voice chat
+                        stream_result = await c.call.play_media(
+                            chat_id=chat_id,
+                            file_path=local_file_path,  # Use the actual downloaded file path
+                            video=True  # Enable video streaming
+                        )
+                        
+                        if stream_result:
+                            await reply_message.edit_text(
+                                f"🎬 **Video Now Playing!**\n\n"
+                                f"📁 **File**: {video_info['file_name']}\n"
+                                f"📏 **Size**: {os.path.getsize(local_file_path) / (1024*1024):.1f}MB\n"
+                                f"🎯 **Format**: {file_extension.upper()}\n\n"
+                                f"✅ **Status**: Video streaming successfully!\n"
+                                f"🎵 **Voice Chat**: Active\n\n"
+                                f"💡 **Controls**: Use /stop to stop playback"
+                            )
+                        else:
+                            await reply_message.edit_text(
+                                f"❌ **Streaming Failed**\n\n"
+                                f"📁 **File**: {video_info['file_name']}\n"
+                                f"📏 **Size**: {os.path.getsize(local_file_path) / (1024*1024):.1f}MB\n\n"
+                                f"🚫 **Error**: Could not start video stream\n\n"
+                                f"💡 **Troubleshooting**:\n"
+                                f"• Make sure you're in a voice chat\n"
+                                f"• Check if voice chat is active\n"
+                                f"• Try again with a different video"
+                            )
+                            
+                    except Exception as stream_error:
+                        await reply_message.edit_text(
+                            f"❌ **Streaming Error**\n\n"
+                            f"📁 **File**: {video_info['file_name']}\n"
+                            f"📏 **Size**: {os.path.getsize(local_file_path) / (1024*1024):.1f}MB\n\n"
+                            f"🚫 **Error**: {str(stream_error)}\n\n"
+                            f"💡 **Troubleshooting**:\n"
+                            f"• Ensure voice chat is active\n"
+                            f"• Check bot permissions\n"
+                            f"• Try a smaller video file"
+                        )
+                else:
+                    # No PyTgCalls - show preparation message
+                    await reply_message.edit_text(
+                        f"🎬 **Video Ready for Playback**\n\n"
+                        f"📁 **File**: {video_info['file_name']}\n"
+                        f"📏 **Size**: {os.path.getsize(local_file_path) / (1024*1024):.1f}MB\n"
+                        f"🎯 **Format**: {file_extension.upper()}\n"
+                        f"💾 **Local Path**: {local_file_path}\n\n"
+                        f"✅ Video downloaded and ready!\n\n"
+                        f"🚀 **Next Steps**:\n"
+                        f"• Join a voice chat in this group\n"
+                        f"• Use /play command again\n"
+                        f"• Video streaming will start automatically\n\n"
+                        f"💡 **Note**: Full video streaming integration is being implemented!"
+                    )
+                
+            except Exception as download_error:
+                await reply_message.edit_text(
+                    f"❌ **Download Error**\n\n"
+                    f"📁 **File**: {video_info['file_name']}\n\n"
+                    f"🚫 **Error**: {str(download_error)}\n\n"
+                    f"💡 **Troubleshooting**:\n"
+                    f"• Check server storage space\n"
+                    f"• Verify bot has download permissions\n"
+                    f"• Try a smaller video file\n"
+                    f"• Error details: {type(download_error).__name__}"
                 )
             
-        except Exception as download_error:
+        except Exception as e:
             await reply_message.edit_text(
-                f"❌ **Download Error**\n\n"
+                f"❌ **Unexpected Error**\n\n"
                 f"📁 **File**: {video_info['file_name']}\n\n"
-                f"🚫 **Error**: {str(download_error)}\n\n"
-                f"💡 **Troubleshooting**:\n"
-                f"• Check server storage space\n"
-                f"• Verify bot has download permissions\n"
-                f"• Try a smaller video file"
+                f"🚫 **Error**: {str(e)}\n\n"
+                f"💡 **Note**: This is an unexpected error. Please try again."
             )
         
     except Exception as e:
