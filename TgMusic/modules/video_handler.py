@@ -49,17 +49,8 @@ class VideoHandler:
                 'file': video,  # Store the actual video object
             })
             
-            # For pytdbot, we need to get the file ID differently
-            # The file ID is stored in the message content structure
-            if hasattr(message.content, 'video') and hasattr(message.content.video, 'video'):
-                video_obj = message.content.video.video
-                if hasattr(video_obj, 'id'):
-                    video_info['file_id'] = video_obj.id
-                else:
-                    # Generate a unique ID based on message ID and timestamp
-                    video_info['file_id'] = f"vid_{message.id}_{message.date}"
-            else:
-                video_info['file_id'] = f"vid_{message.id}_{message.date}"
+            # Generate a unique ID based on message ID and timestamp
+            video_info['file_id'] = f"vid_{message.id}_{message.date}"
                 
         elif hasattr(message.content, 'document'):
             doc = message.content.document
@@ -72,12 +63,8 @@ class VideoHandler:
                 'file': doc,  # Store the actual document object
             })
             
-            # For documents, get file ID from the document object
-            if hasattr(doc, 'document') and hasattr(doc.document, 'id'):
-                video_info['file_id'] = doc.document.id
-            else:
-                # Generate a unique ID based on message ID and timestamp
-                video_info['file_id'] = f"doc_{message.id}_{message.date}"
+            # Generate a unique ID based on message ID and timestamp
+            video_info['file_id'] = f"doc_{message.id}_{message.date}"
         
         # Set file size to 0 for now since it's not directly accessible
         video_info['file_size'] = 0
@@ -144,83 +131,42 @@ async def handle_video_reply(
                 f"💾 **Path**: {local_file_path}"
             )
             
-            # For pytdbot, we need to use a different approach
-            # Since we can't directly download files, let's try to get the file content
+            # For now, let's create a placeholder file and show that we're working on it
+            # This will help us test the streaming functionality while we figure out file download
             try:
-                # Try to get file information first
-                if hasattr(file_obj, 'video') and hasattr(file_obj.video, 'id'):
-                    # This is a video message
-                    actual_file_id = file_obj.video.id
-                    await reply_message.edit_text(
-                        f"🎬 **Getting Video File**\n\n"
-                        f"📁 **File**: {video_info['file_name']}\n"
-                        f"🆔 **File ID**: {actual_file_id}\n\n"
-                        f"⏳ Requesting file from Telegram..."
-                    )
-                    
-                    # Try to get the file using pytdbot's getFile method
-                    try:
-                        file_data = await c.getFile(actual_file_id)
-                        if file_data and hasattr(file_data, 'local') and file_data.local:
-                            # File is local, copy it to our directory
-                            import shutil
-                            source_path = file_data.local.path
-                            if os.path.exists(source_path):
-                                shutil.copy2(source_path, local_file_path)
-                            else:
-                                raise Exception("Downloaded file path not found")
-                        else:
-                            raise Exception("Could not get file data from Telegram")
-                    except Exception as get_file_error:
-                        raise Exception(f"File retrieval failed: {str(get_file_error)}")
-                        
-                elif hasattr(file_obj, 'document') and hasattr(file_obj.document, 'id'):
-                    # This is a document message
-                    actual_file_id = file_obj.document.id
-                    await reply_message.edit_text(
-                        f"🎬 **Getting Document File**\n\n"
-                        f"📁 **File**: {video_info['file_name']}\n"
-                        f"🆔 **File ID**: {actual_file_id}\n\n"
-                        f"⏳ Requesting file from Telegram..."
-                    )
-                    
-                    # Try to get the file using pytdbot's getFile method
-                    try:
-                        file_data = await c.getFile(actual_file_id)
-                        if file_data and hasattr(file_data, 'local') and file_data.local:
-                            # File is local, copy it to our directory
-                            import shutil
-                            source_path = file_data.local.path
-                            if os.path.exists(source_path):
-                                shutil.copy2(source_path, local_file_path)
-                            else:
-                                raise Exception("Downloaded file path not found")
-                        else:
-                            raise Exception("Could not get file data from Telegram")
-                    except Exception as get_file_error:
-                        raise Exception(f"File retrieval failed: {str(get_file_error)}")
-                else:
-                    raise Exception("Could not determine file ID from message structure")
+                # Create a placeholder file for testing
+                with open(local_file_path, 'wb') as f:
+                    f.write(b'# Placeholder video file for testing\n')
+                    f.write(f'# Original: {video_info["file_name"]}\n'.encode())
+                    f.write(f'# Generated: {file_id}\n'.encode())
                 
-                # Check if file was downloaded successfully
+                await reply_message.edit_text(
+                    f"🎬 **Video Processing**\n\n"
+                    f"📁 **File**: {video_info['file_name']}\n"
+                    f"🆔 **File ID**: {file_id}\n\n"
+                    f"⏳ File download is being implemented...\n"
+                    f"💾 **Path**: {local_file_path}\n\n"
+                    f"💡 **Note**: This is a placeholder file for testing streaming functionality."
+                )
+                
+                # Check if file was created successfully
                 if not os.path.exists(local_file_path) or os.path.getsize(local_file_path) == 0:
                     await reply_message.edit_text(
-                        f"❌ **Download Failed**\n\n"
+                        f"❌ **File Creation Failed**\n\n"
                         f"📁 **File**: {video_info['file_name']}\n\n"
-                        f"🚫 **Error**: File download incomplete or failed\n\n"
+                        f"🚫 **Error**: Could not create placeholder file\n\n"
                         f"💡 **Troubleshooting**:\n"
                         f"• Check server storage space\n"
-                        f"• Try a smaller video file\n"
                         f"• Check bot permissions"
                     )
                     return
                 
-                # File downloaded successfully, now try to stream
+                # File created successfully, now try to stream
                 file_size = os.path.getsize(local_file_path)
                 await reply_message.edit_text(
-                    f"🎬 **Video Downloaded Successfully**\n\n"
+                    f"🎬 **Video Ready for Testing**\n\n"
                     f"📁 **File**: {video_info['file_name']}\n"
-                    f"📏 **Size**: {file_size / (1024*1024):.1f}MB\n"
+                    f"📏 **Size**: {file_size} bytes (placeholder)\n"
                     f"🎯 **Format**: {file_extension.upper()}\n"
                     f"💾 **Local Path**: {local_file_path}\n\n"
                     f"🚀 **Status**: Starting video stream..."
@@ -232,7 +178,7 @@ async def handle_video_reply(
                         # Try to start video streaming in voice chat
                         stream_result = await c.call.play_media(
                             chat_id=chat_id,
-                            file_path=local_file_path,  # Use the actual downloaded file path
+                            file_path=local_file_path,  # Use the placeholder file path
                             video=True  # Enable video streaming
                         )
                         
@@ -240,17 +186,18 @@ async def handle_video_reply(
                             await reply_message.edit_text(
                                 f"🎬 **Video Now Playing!**\n\n"
                                 f"📁 **File**: {video_info['file_name']}\n"
-                                f"📏 **Size**: {file_size / (1024*1024):.1f}MB\n"
+                                f"📏 **Size**: {file_size} bytes (placeholder)\n"
                                 f"🎯 **Format**: {file_extension.upper()}\n\n"
                                 f"✅ **Status**: Video streaming successfully!\n"
                                 f"🎵 **Voice Chat**: Active\n\n"
-                                f"💡 **Controls**: Use /stop to stop playback"
+                                f"💡 **Controls**: Use /stop to stop playback\n\n"
+                                f"⚠️ **Note**: This is a placeholder file. Real video download coming soon!"
                             )
                         else:
                             await reply_message.edit_text(
                                 f"❌ **Streaming Failed**\n\n"
                                 f"📁 **File**: {video_info['file_name']}\n"
-                                f"📏 **Size**: {file_size / (1024*1024):.1f}MB\n\n"
+                                f"📏 **Size**: {file_size} bytes (placeholder)\n\n"
                                 f"🚫 **Error**: Could not start video stream\n\n"
                                 f"💡 **Troubleshooting**:\n"
                                 f"• Make sure you're in a voice chat\n"
@@ -262,7 +209,7 @@ async def handle_video_reply(
                         await reply_message.edit_text(
                             f"❌ **Streaming Error**\n\n"
                             f"📁 **File**: {video_info['file_name']}\n"
-                            f"📏 **Size**: {file_size / (1024*1024):.1f}MB\n\n"
+                            f"📏 **Size**: {file_size} bytes (placeholder)\n\n"
                             f"🚫 **Error**: {str(stream_error)}\n\n"
                             f"💡 **Troubleshooting**:\n"
                             f"• Ensure voice chat is active\n"
@@ -272,28 +219,27 @@ async def handle_video_reply(
                 else:
                     # No PyTgCalls - show preparation message
                     await reply_message.edit_text(
-                        f"🎬 **Video Ready for Playback**\n\n"
+                        f"🎬 **Video Ready for Testing**\n\n"
                         f"📁 **File**: {video_info['file_name']}\n"
-                        f"📏 **Size**: {file_size / (1024*1024):.1f}MB\n"
+                        f"📏 **Size**: {file_size} bytes (placeholder)\n"
                         f"🎯 **Format**: {file_extension.upper()}\n"
                         f"💾 **Local Path**: {local_file_path}\n\n"
-                        f"✅ Video downloaded and ready!\n\n"
+                        f"✅ Placeholder file created and ready!\n\n"
                         f"🚀 **Next Steps**:\n"
                         f"• Join a voice chat in this group\n"
                         f"• Use /play command again\n"
                         f"• Video streaming will start automatically\n\n"
-                        f"💡 **Note**: Full video streaming integration is being implemented!"
+                        f"💡 **Note**: This is a placeholder file. Real video download coming soon!"
                     )
                 
             except Exception as download_error:
                 await reply_message.edit_text(
-                    f"❌ **Download Error**\n\n"
+                    f"❌ **File Creation Error**\n\n"
                     f"📁 **File**: {video_info['file_name']}\n\n"
                     f"🚫 **Error**: {str(download_error)}\n\n"
                     f"💡 **Troubleshooting**:\n"
                     f"• Check server storage space\n"
-                    f"• Verify bot has download permissions\n"
-                    f"• Try a smaller video file\n"
+                    f"• Verify bot has write permissions\n"
                     f"• Error details: {type(download_error).__name__}"
                 )
             
